@@ -59,10 +59,57 @@ document.addEventListener('DOMContentLoaded', () => {
         'other': ['mp4', 'webm', 'mkv']
     };
 
+    // Store the current video URL
+    let currentVideoUrl = '';
+    
     // Event Listeners
-    fetchBtn.addEventListener('click', handleFetchClick);
-    videoUrlInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') handleFetchClick();
+    fetchBtn.addEventListener('click', async () => {
+        try {
+            // Try to read URL from clipboard
+            const text = await navigator.clipboard.readText();
+            if (text && (text.includes('http://') || text.includes('https://'))) {
+                currentVideoUrl = text;
+                handleFetchClick();
+            } else {
+                showError('No valid URL found in clipboard. Please copy a video URL first.');
+            }
+        } catch (err) {
+            console.log('Could not read clipboard contents:', err);
+            showError('Could not access clipboard. Please make sure to allow clipboard access.');
+        }
+    });
+    
+    // Make the button a drop target for URLs
+    fetchBtn.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        fetchBtn.classList.add('pulse');
+    });
+    
+    fetchBtn.addEventListener('dragleave', () => {
+        fetchBtn.classList.remove('pulse');
+    });
+    
+    fetchBtn.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        fetchBtn.classList.remove('pulse');
+        
+        // Handle dropped text/URL
+        const text = e.dataTransfer.getData('text/plain');
+        if (text && (text.includes('http://') || text.includes('https://'))) {
+            currentVideoUrl = text;
+            handleFetchClick();
+        } else {
+            showError('Please drop a valid URL');
+        }
+    });
+    
+    // Make the entire document a drop target for URLs
+    document.addEventListener('dragover', (e) => {
+        e.preventDefault();
+    });
+    
+    document.addEventListener('drop', (e) => {
+        e.preventDefault();
     });
 
     // Tab switching
@@ -81,10 +128,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Functions
     async function handleFetchClick() {
-        const url = videoUrlInput.value.trim();
-        
+        const url = currentVideoUrl.trim();
         if (!url) {
-            showError('Please enter a valid URL');
+            showError('No URL provided. Please copy a video URL and click the button.');
             return;
         }
 
@@ -350,16 +396,24 @@ document.addEventListener('DOMContentLoaded', () => {
     function showLoader() {
         loader.classList.remove('hidden');
         fetchBtn.disabled = true;
+        fetchBtn.classList.add('loading');
+        fetchBtn.querySelector('i').className = 'fas fa-spinner';
+        fetchBtn.querySelector('span').textContent = 'Fetching...';
     }
 
     function hideLoader() {
         loader.classList.add('hidden');
         fetchBtn.disabled = false;
+        fetchBtn.classList.remove('loading');
+        fetchBtn.querySelector('i').className = 'fas fa-play';
+        fetchBtn.querySelector('span').textContent = 'Fetch Video';
     }
 
     function showError(message) {
         errorText.textContent = message;
         errorMessage.classList.remove('hidden');
+        // Auto-hide error after 5 seconds
+        setTimeout(hideError, 5000);
     }
 
     function hideError() {
