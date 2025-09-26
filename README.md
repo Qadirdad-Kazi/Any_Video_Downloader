@@ -29,7 +29,7 @@ A modern web application that allows users to download videos from various platf
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/yourusername/AnyDownloader.git
+   git clone (https://github.com/Qadirdad-Kazi/Any_Video_Downloader)
    cd AnyDownloader
    ```
 
