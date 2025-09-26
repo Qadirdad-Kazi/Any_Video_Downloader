@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AnyDownloader - Download Videos from Any Platform</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-download"></i> AnyDownloader</h1>
+            <p class="subtitle">Download videos from YouTube, Facebook, Instagram, Twitter, TikTok, and more!</p>
+        </header>
+
+        <div class="main-content">
+            <div class="url-input-container">
+                <input type="text" id="videoUrl" placeholder="Paste video URL here...">
+                <button id="fetchBtn">Fetch Video <i class="fas fa-search"></i></button>
+            </div>
+
+            <div id="loader" class="loader hidden">
+                <div class="spinner"></div>
+                <p>Fetching video information...</p>
+            </div>
+
+            <div id="videoInfo" class="video-info hidden">
+                <div class="thumbnail-container">
+                    <img id="thumbnail" src="" alt="Video Thumbnail">
+                    <div class="video-details">
+                        <h3 id="videoTitle"></h3>
+                        <p id="videoDuration" class="meta"></p>
+                    </div>
+                </div>
+
+                <div class="formats-container">
+                    <h3>Available Formats</h3>
+                    <div class="tabs">
+                        <button class="tab-btn active" data-tab="video">Video</button>
+                        <button class="tab-btn" data-tab="audio">Audio Only</button>
+                    </div>
+                    
+                    <div id="videoFormats" class="format-options">
+                        <!-- Video formats will be inserted here -->
+                    </div>
+                    
+                    <div id="audioFormats" class="format-options hidden">
+                        <!-- Audio formats will be inserted here -->
+                    </div>
+                </div>
+            </div>
+
+            <div id="errorMessage" class="error-message hidden">
+                <i class="fas fa-exclamation-circle"></i>
+                <span id="errorText"></span>
+            </div>
+
+            <div id="downloadProgress" class="progress-container hidden">
+                <div class="progress-bar">
+                    <div class="progress"></div>
+                </div>
+                <p class="progress-text">Preparing download...</p>
+            </div>
+        </div>
+
+        <footer>
+            <p>© 2023 AnyDownloader | Free Online Video Downloader</p>
+            <p class="disclaimer">This tool is for personal use only. Please respect the terms of service of the respective platforms.</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
