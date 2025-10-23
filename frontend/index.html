@@ -8,13 +8,14 @@
     <!-- PWA Meta Tags -->
     <meta name="description" content="Download videos from YouTube, Facebook, Instagram, Twitter, TikTok, and 1000+ platforms">
     <meta name="theme-color" content="#00f7ff">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="AnyDownloader">
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icons/icon-192x192.png">
     
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=2.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 </head>
@@ -23,6 +24,12 @@
     <div id="networkStatus" class="network-status hidden">
         <i class="fas fa-wifi-slash"></i>
         <span>No Internet Connection</span>
+    </div>
+
+    <!-- Backend Connection Status -->
+    <div id="backendStatus" class="backend-status">
+        <i class="fas fa-circle"></i>
+        <span id="backendStatusText">Connecting...</span>
     </div>
 
     <!-- PWA Install Prompt -->
@@ -59,11 +66,29 @@
         </header>
 
         <div class="main-content">
-            <div class="fetch-button-container">
-                <button id="fetchBtn" class="fetch-button pulse" title="Click to fetch or drop a link here">
-                    <i class="fas fa-play"></i>
-                    <span>Paste or Drop URL</span>
-                    <div class="hint">Click or drop a video link here</div>
+            <div class="url-input-container">
+                <div class="input-wrapper">
+                    <i class="fas fa-link"></i>
+                    <input 
+                        type="text" 
+                        id="videoUrl" 
+                        placeholder="Paste video URL here (YouTube, Facebook, Instagram, TikTok, etc.)"
+                        autocomplete="off"
+                        spellcheck="false"
+                    >
+                    <button id="clearBtn" class="clear-btn hidden" title="Clear">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <button id="fetchBtn" class="fetch-btn">
+                    <i class="fas fa-search"></i>
+                    <span>Fetch Info</span>
+                </button>
+            </div>
+            <div class="quick-actions">
+                <button id="pasteBtn" class="quick-action-btn" title="Paste from clipboard">
+                    <i class="fas fa-clipboard"></i>
+                    <span>Paste</span>
                 </button>
             </div>
 
@@ -258,14 +283,26 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=2.1"></script>
     
     <!-- PWA Registration -->
     <script>
+        // Unregister old service worker and clear cache
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                for(let registration of registrations) {
+                    registration.unregister();
+                }
+            });
+            caches.keys().then(function(names) {
+                for (let name of names) caches.delete(name);
+            });
+        }
+        
         // Register service worker
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/service-worker.js')
+                navigator.serviceWorker.register('./service-worker.js')
                     .then((registration) => {
                         console.log('ServiceWorker registered:', registration.scope);
                         

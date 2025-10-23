@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backend Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #0a0e17;
+            color: #fff;
+        }
+        .status {
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .success {
+            background: rgba(16, 185, 129, 0.2);
+            border: 2px solid #10b981;
+        }
+        .error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 2px solid #ef4444;
+        }
+        .loading {
+            background: rgba(251, 191, 36, 0.2);
+            border: 2px solid #fbbf24;
+        }
+        button {
+            background: #00f7ff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #00c2ff;
+        }
+        pre {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔌 Backend Connection Test</h1>
+    <p>This page tests the connection between the frontend and backend.</p>
+    
+    <div>
+        <button onclick="testBackend()">Test Backend Connection</button>
+        <button onclick="testVideoInfo()">Test Video Info API</button>
+    </div>
+    
+    <div id="result"></div>
+    
+    <script>
+        const API_BASE_URL = 'http://localhost:8000';
+        const resultDiv = document.getElementById('result');
+        
+        async function testBackend() {
+            resultDiv.innerHTML = '<div class="status loading">⏳ Testing backend connection...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `
+                        <div class="status success">
+                            <h3>✅ Backend Connected Successfully!</h3>
+                            <p>Status: ${response.status} ${response.statusText}</p>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                } else {
+                    throw new Error(`Server returned ${response.status}`);
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="status error">
+                        <h3>❌ Backend Connection Failed</h3>
+                        <p>Error: ${error.message}</p>
+                        <p><strong>Solution:</strong> Make sure the backend is running:</p>
+                        <pre>cd backend
+python app.py</pre>
+                    </div>
+                `;
+            }
+        }
+        
+        async function testVideoInfo() {
+            const testUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+            resultDiv.innerHTML = '<div class="status loading">⏳ Testing video info API...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/info?url=${encodeURIComponent(testUrl)}`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `
+                        <div class="status success">
+                            <h3>✅ Video Info API Works!</h3>
+                            <p>Video Title: ${data.title || data.playlist_title || 'Unknown'}</p>
+                            <p>Type: ${data.type}</p>
+                            <p>Formats Available: ${data.formats?.length || 0}</p>
+                            <details>
+                                <summary>Show Full Response</summary>
+                                <pre>${JSON.stringify(data, null, 2).substring(0, 1000)}...</pre>
+                            </details>
+                        </div>
+                    `;
+                } else {
+                    throw new Error(`API returned ${response.status}: ${data.detail || 'Unknown error'}`);
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="status error">
+                        <h3>❌ Video Info API Failed</h3>
+                        <p>Error: ${error.message}</p>
+                        <p><strong>Possible causes:</strong></p>
+                        <ul>
+                            <li>Backend is not running</li>
+                            <li>CORS is blocking the request</li>
+                            <li>yt-dlp is not installed</li>
+                        </ul>
+                    </div>
+                `;
+            }
+        }
+        
+        // Auto-test on load
+        window.addEventListener('load', () => {
+            testBackend();
+        });
+    </script>
+</body>
+</html>
+

@@ -2,12 +2,12 @@
   "name": "AnyDownloader - Video Downloader",
   "short_name": "AnyDownloader",
   "description": "Download videos from YouTube, Facebook, Instagram, Twitter, TikTok, and 1000+ platforms with a beautiful, responsive interface.",
-  "start_url": "/index.html",
+  "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0a0e17",
   "theme_color": "#00f7ff",
   "orientation": "portrait-primary",
-  "scope": "/",
+  "scope": "./",
   "icons": [
     {
       "src": "icons/icon-72x72.png",
@@ -78,13 +78,14 @@
       "name": "Download Video",
       "short_name": "Download",
       "description": "Start downloading a video",
-      "url": "/index.html",
+      "url": "./index.html",
       "icons": [{ "src": "icons/icon-96x96.png", "sizes": "96x96" }]
     }
   ],
   "share_target": {
-    "action": "/index.html",
+    "action": "./index.html",
     "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
     "params": {
       "url": "url"
     }

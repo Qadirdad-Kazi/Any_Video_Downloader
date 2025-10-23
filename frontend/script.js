@@ -1,8 +1,15 @@
+// Version check - if you see a different version in console, clear cache!
+console.log('%c✅ AnyDownloader v2.1 Loaded', 'color: #00f7ff; font-size: 16px; font-weight: bold');
+
 document.addEventListener('DOMContentLoaded', () => {
     // DOM Elements
     const videoUrlInput = document.getElementById('videoUrl');
     const fetchBtn = document.getElementById('fetchBtn');
+    const pasteBtn = document.getElementById('pasteBtn');
+    const clearBtn = document.getElementById('clearBtn');
     const loader = document.getElementById('loader');
+    const backendStatus = document.getElementById('backendStatus');
+    const backendStatusText = document.getElementById('backendStatusText');
     const videoInfo = document.getElementById('videoInfo');
     const playlistInfo = document.getElementById('playlistInfo');
     const playlistTitle = document.getElementById('playlistTitle');
@@ -103,44 +110,159 @@ document.addEventListener('DOMContentLoaded', () => {
     let isOnline = navigator.onLine;
     let deferredInstallPrompt = null;
     
-    // Event Listeners
-    fetchBtn.addEventListener('click', async () => {
+    // Helper function to validate URL
+    function isValidVideoUrl(text) {
+        if (!text || typeof text !== 'string') return false;
+        
+        // Remove whitespace
+        text = text.trim();
+        
+        // Must contain http:// or https://
+        if (!text.includes('http://') && !text.includes('https://')) return false;
+        
+        // Should not be too long (error messages can be very long)
+        if (text.length > 500) return false;
+        
+        // Should not contain error indicators
+        const errorIndicators = ['error', 'failed', 'TypeError', 'cannot read', '404', 'ServiceWorker'];
+        if (errorIndicators.some(indicator => text.toLowerCase().includes(indicator.toLowerCase()))) {
+            return false;
+        }
+        
+        // Try to create URL object to validate
         try {
-            // Try to read URL from clipboard
-            const text = await navigator.clipboard.readText();
-            if (text && (text.includes('http://') || text.includes('https://'))) {
-                currentVideoUrl = text;
-                handleFetchClick();
+            const url = new URL(text);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    // Check backend connection
+    async function checkBackendConnection() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/`, {
+                method: 'GET',
+                signal: AbortSignal.timeout(5000) // 5 second timeout
+            });
+            
+            if (response.ok) {
+                backendStatus.classList.add('connected');
+                backendStatus.classList.remove('disconnected');
+                backendStatusText.textContent = 'Backend Connected';
+                return true;
             } else {
-                showError('No valid URL found in clipboard. Please copy a video URL first.');
+                throw new Error('Backend returned error');
             }
-        } catch (err) {
-            console.log('Could not read clipboard contents:', err);
-            showError('Could not access clipboard. Please make sure to allow clipboard access.');
+        } catch (error) {
+            backendStatus.classList.add('disconnected');
+            backendStatus.classList.remove('connected');
+            backendStatusText.textContent = 'Backend Disconnected';
+            console.error('Backend connection failed:', error);
+            
+            showError('Cannot connect to backend server. Please make sure the backend is running on port 8000.', {
+                solution: 'Start the backend by running: python backend/app.py',
+                type: 'warning',
+                autoHide: false
+            });
+            
+            return false;
+        }
+    }
+
+    // Periodic backend health check
+    function startBackendHealthCheck() {
+        checkBackendConnection();
+        setInterval(checkBackendConnection, 30000); // Check every 30 seconds
+    }
+
+    // Event Listeners
+    
+    // Input field changes
+    videoUrlInput.addEventListener('input', () => {
+        if (videoUrlInput.value.trim()) {
+            clearBtn.classList.remove('hidden');
+        } else {
+            clearBtn.classList.add('hidden');
         }
     });
     
-    // Make the button a drop target for URLs
-    fetchBtn.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        fetchBtn.classList.add('pulse');
+    // Allow Enter key to fetch
+    videoUrlInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            fetchBtn.click();
+        }
     });
     
-    fetchBtn.addEventListener('dragleave', () => {
-        fetchBtn.classList.remove('pulse');
+    // Clear button
+    clearBtn.addEventListener('click', () => {
+        videoUrlInput.value = '';
+        clearBtn.classList.add('hidden');
+        videoUrlInput.focus();
+        currentVideoUrl = '';
     });
     
-    fetchBtn.addEventListener('drop', async (e) => {
+    // Paste button
+    pasteBtn.addEventListener('click', async () => {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (isValidVideoUrl(text)) {
+                videoUrlInput.value = text.trim();
+                clearBtn.classList.remove('hidden');
+                videoUrlInput.focus();
+            } else {
+                showError('No valid video URL found in clipboard.', {
+                    solution: 'Copy a video URL first (e.g., from YouTube, TikTok, Instagram), then click the Paste button. Or paste directly into the input field with Ctrl+V.',
+                    type: 'info',
+                    autoHide: true
+                });
+            }
+        } catch (err) {
+            console.log('Could not read clipboard contents:', err);
+            showError('Could not access clipboard.', {
+                solution: 'Allow clipboard access when prompted, or paste directly into the input field using Ctrl+V (Cmd+V on Mac).',
+                type: 'warning',
+                autoHide: false
+            });
+        }
+    });
+    
+    // Fetch button
+    fetchBtn.addEventListener('click', () => {
+        const url = videoUrlInput.value.trim();
+        if (isValidVideoUrl(url)) {
+            currentVideoUrl = url;
+            handleFetchClick();
+        } else if (url) {
+            showError('Please enter a valid video URL.');
+        } else {
+            showError('Please enter a video URL to continue.');
+        }
+    });
+    
+    // Make the input field a drop target for URLs
+    videoUrlInput.addEventListener('dragover', (e) => {
         e.preventDefault();
-        fetchBtn.classList.remove('pulse');
+        videoUrlInput.classList.add('drag-over');
+    });
+    
+    videoUrlInput.addEventListener('dragleave', () => {
+        videoUrlInput.classList.remove('drag-over');
+    });
+    
+    videoUrlInput.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        videoUrlInput.classList.remove('drag-over');
         
         // Handle dropped text/URL
         const text = e.dataTransfer.getData('text/plain');
-        if (text && (text.includes('http://') || text.includes('https://'))) {
-            currentVideoUrl = text;
+        if (isValidVideoUrl(text)) {
+            videoUrlInput.value = text.trim();
+            clearBtn.classList.remove('hidden');
+            currentVideoUrl = text.trim();
             handleFetchClick();
         } else {
-            showError('Please drop a valid URL');
+            showError('Please drop a valid video URL');
         }
     });
     
@@ -214,6 +336,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize theme from localStorage or system preference
     initializeTheme();
+    
+    // Start backend health check
+    startBackendHealthCheck();
     
     // PWA Install prompt
     installBtn.addEventListener('click', handleInstall);
@@ -570,8 +695,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleDownload(formatId) {
-        const url = videoUrlInput.value.trim();
-        if (!url || !formatId) return;
+        console.log('handleDownload called with formatId:', formatId);
+        const url = currentVideoUrl;
+        console.log('URL:', url);
+        
+        if (!url || !formatId) {
+            console.error('Missing URL or formatId');
+            showError('Missing URL or format. Please try again.');
+            return;
+        }
         
         try {
             showProgress('Preparing download...');
@@ -613,7 +745,12 @@ document.addEventListener('DOMContentLoaded', () => {
             showProgress('Starting download...');
             
             // Use fetch API for better progress tracking
-            const response = await fetch(downloadUrl);
+            const response = await fetchWithRetry(downloadUrl);
+            
+            if (!response.ok) {
+                throw new Error(`Download failed: ${response.statusText}`);
+            }
+            
             const contentLength = response.headers.get('content-length');
             const reader = response.body.getReader();
             const chunks = [];

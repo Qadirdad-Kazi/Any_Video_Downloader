@@ -1,10 +1,10 @@
 const CACHE_NAME = 'anydownloader-v1.0.0';
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/styles.css',
-  '/script.js',
-  '/manifest.json',
+  './',
+  './index.html',
+  './styles.css',
+  './script.js',
+  './manifest.json',
   'https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap',
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css'
 ];
@@ -92,7 +92,7 @@ self.addEventListener('fetch', (event) => {
           
           // Return offline page for navigation requests
           if (request.destination === 'document') {
-            return caches.match('/index.html');
+            return caches.match('./index.html');
           }
           
           return new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
