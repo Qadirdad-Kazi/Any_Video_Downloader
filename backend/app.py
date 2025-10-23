@@ -154,13 +154,24 @@ async def download(
         # Get video info first to get the title
         video_info = get_video_info(url)
         
+        # Smart format selection - merge video with audio if needed
+        # If format_id is a video-only format, merge with best audio
+        if format_id and format_id != 'best':
+            format_string = f'{format_id}+bestaudio/best'
+        else:
+            format_string = 'bestvideo+bestaudio/best'
+        
         # Set up yt-dlp options
         ydl_opts = {
-            'format': format_id,
+            'format': format_string,
             'outtmpl': os.path.join(DOWNLOADS_DIR, '%(title)s.%(ext)s'),
             'merge_output_format': 'mp4',
-            'quiet': True,
-            'no_warnings': True,
+            'quiet': False,  # Show output for debugging
+            'no_warnings': False,
+            'postprocessors': [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }],
         }
         
         # Download the video
