@@ -9,6 +9,12 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 </head>
 <body>
+    <!-- Network Status Indicator -->
+    <div id="networkStatus" class="network-status hidden">
+        <i class="fas fa-wifi-slash"></i>
+        <span>No Internet Connection</span>
+    </div>
+
     <div class="container">
         <header>
             <h1><i class="fas fa-download"></i> AnyDownloader</h1>
@@ -27,6 +33,55 @@
             <div id="loader" class="loader hidden">
                 <div class="spinner"></div>
                 <p>Fetching video information...</p>
+            </div>
+
+            <div id="playlistInfo" class="playlist-info hidden">
+                <div class="playlist-header">
+                    <div class="playlist-title-section">
+                        <h2><i class="fas fa-list"></i> <span id="playlistTitle"></span></h2>
+                        <p class="playlist-meta">
+                            <span id="playlistCount"></span> videos • 
+                            <span id="playlistUploader"></span>
+                        </p>
+                    </div>
+                    <div class="playlist-actions">
+                        <div class="view-toggle">
+                            <button id="listViewBtn" class="view-btn active" title="List View">
+                                <i class="fas fa-list"></i>
+                            </button>
+                            <button id="gridViewBtn" class="view-btn" title="Gallery View">
+                                <i class="fas fa-th"></i>
+                            </button>
+                        </div>
+                        <button id="selectAllBtn" class="action-btn">
+                            <i class="fas fa-check-double"></i> Select All
+                        </button>
+                        <button id="deselectAllBtn" class="action-btn">
+                            <i class="fas fa-times"></i> Deselect All
+                        </button>
+                    </div>
+                </div>
+
+                <div class="format-selector-container">
+                    <label for="playlistFormatSelect">Download Format:</label>
+                    <select id="playlistFormatSelect" class="format-select">
+                        <option value="best">Best Quality (MP4)</option>
+                        <option value="bestvideo+bestaudio/best">High Quality (MP4)</option>
+                        <option value="worst">Low Quality (smaller file)</option>
+                        <option value="bestaudio">Audio Only (MP3)</option>
+                    </select>
+                </div>
+
+                <div id="playlistVideos" class="playlist-videos">
+                    <!-- Playlist videos will be inserted here -->
+                </div>
+
+                <div class="batch-download-section">
+                    <button id="batchDownloadBtn" class="batch-download-btn" disabled>
+                        <i class="fas fa-download"></i>
+                        <span>Download Selected (<span id="selectedCount">0</span>)</span>
+                    </button>
+                </div>
             </div>
 
             <div id="videoInfo" class="video-info hidden">
@@ -56,8 +111,21 @@
             </div>
 
             <div id="errorMessage" class="error-message hidden">
-                <i class="fas fa-exclamation-circle"></i>
-                <span id="errorText"></span>
+                <div class="error-content">
+                    <div class="error-header">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <span id="errorText"></span>
+                    </div>
+                    <div id="errorSolution" class="error-solution hidden"></div>
+                </div>
+                <div class="error-actions hidden" id="errorActions">
+                    <button id="retryBtn" class="retry-btn">
+                        <i class="fas fa-redo"></i> Retry
+                    </button>
+                    <button id="dismissErrorBtn" class="dismiss-btn">
+                        <i class="fas fa-times"></i> Dismiss
+                    </button>
+                </div>
             </div>
 
             <div id="downloadProgress" class="progress-container hidden">
@@ -66,12 +134,48 @@
                 </div>
                 <p class="progress-text">Preparing download...</p>
             </div>
+
+            <div id="batchProgress" class="batch-progress-container hidden">
+                <h3 class="batch-progress-title">
+                    <i class="fas fa-sync fa-spin"></i> Batch Download Progress
+                </h3>
+                <div id="batchProgressList" class="batch-progress-list">
+                    <!-- Individual download progress items will be inserted here -->
+                </div>
+            </div>
         </div>
 
         <footer>
             <p>© 2023 AnyDownloader | Free Online Video Downloader</p>
             <p class="disclaimer">This tool is for personal use only. Please respect the terms of service of the respective platforms.</p>
         </footer>
+    </div>
+
+    <!-- Video Preview Modal -->
+    <div id="videoPreviewModal" class="modal hidden">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="previewTitle">Video Preview</h3>
+                <button class="modal-close" id="closePreviewModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="videoPlayerContainer" class="video-player-container">
+                    <!-- Video player will be inserted here -->
+                </div>
+                <div class="preview-info">
+                    <p id="previewDuration" class="preview-meta"></p>
+                    <p id="previewUrl" class="preview-url"></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="previewDownloadBtn" class="preview-download-btn">
+                    <i class="fas fa-download"></i> Download This Video
+                </button>
+            </div>
+        </div>
     </div>
 
     <script src="script.js"></script>

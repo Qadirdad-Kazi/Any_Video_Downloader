@@ -4,8 +4,34 @@ document.addEventListener('DOMContentLoaded', () => {
     const fetchBtn = document.getElementById('fetchBtn');
     const loader = document.getElementById('loader');
     const videoInfo = document.getElementById('videoInfo');
+    const playlistInfo = document.getElementById('playlistInfo');
+    const playlistTitle = document.getElementById('playlistTitle');
+    const playlistCount = document.getElementById('playlistCount');
+    const playlistUploader = document.getElementById('playlistUploader');
+    const playlistVideos = document.getElementById('playlistVideos');
+    const selectAllBtn = document.getElementById('selectAllBtn');
+    const deselectAllBtn = document.getElementById('deselectAllBtn');
+    const batchDownloadBtn = document.getElementById('batchDownloadBtn');
+    const selectedCount = document.getElementById('selectedCount');
+    const playlistFormatSelect = document.getElementById('playlistFormatSelect');
+    const batchProgress = document.getElementById('batchProgress');
+    const batchProgressList = document.getElementById('batchProgressList');
+    const listViewBtn = document.getElementById('listViewBtn');
+    const gridViewBtn = document.getElementById('gridViewBtn');
+    const videoPreviewModal = document.getElementById('videoPreviewModal');
+    const closePreviewModal = document.getElementById('closePreviewModal');
+    const previewTitle = document.getElementById('previewTitle');
+    const previewDuration = document.getElementById('previewDuration');
+    const previewUrl = document.getElementById('previewUrl');
+    const videoPlayerContainer = document.getElementById('videoPlayerContainer');
+    const previewDownloadBtn = document.getElementById('previewDownloadBtn');
     const errorMessage = document.getElementById('errorMessage');
     const errorText = document.getElementById('errorText');
+    const errorSolution = document.getElementById('errorSolution');
+    const errorActions = document.getElementById('errorActions');
+    const retryBtn = document.getElementById('retryBtn');
+    const dismissErrorBtn = document.getElementById('dismissErrorBtn');
+    const networkStatus = document.getElementById('networkStatus');
     const videoTitle = document.getElementById('videoTitle');
     const videoThumbnail = document.getElementById('thumbnail');
     const videoDuration = document.getElementById('videoDuration');
@@ -59,8 +85,16 @@ document.addEventListener('DOMContentLoaded', () => {
         'other': ['mp4', 'webm', 'mkv']
     };
 
-    // Store the current video URL
+    // Store the current video URL and playlist data
     let currentVideoUrl = '';
+    let currentPlaylistData = null;
+    let selectedVideos = new Set();
+    let currentPreviewVideo = null;
+    let playlistViewMode = 'list'; // 'list' or 'grid'
+    let lastFailedAction = null; // Store last failed action for retry
+    let retryCount = 0;
+    const MAX_RETRIES = 3;
+    let isOnline = navigator.onLine;
     
     // Event Listeners
     fetchBtn.addEventListener('click', async () => {
@@ -125,6 +159,48 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById(`${tabId}Formats`).classList.remove('hidden');
         });
     });
+    
+    // Playlist actions
+    selectAllBtn.addEventListener('click', () => {
+        const checkboxes = document.querySelectorAll('.video-select-checkbox');
+        checkboxes.forEach(cb => cb.checked = true);
+        updateSelectedCount();
+    });
+    
+    deselectAllBtn.addEventListener('click', () => {
+        const checkboxes = document.querySelectorAll('.video-select-checkbox');
+        checkboxes.forEach(cb => cb.checked = false);
+        updateSelectedCount();
+    });
+    
+    // Batch download
+    batchDownloadBtn.addEventListener('click', handleBatchDownload);
+    
+    // View toggle
+    listViewBtn.addEventListener('click', () => switchView('list'));
+    gridViewBtn.addEventListener('click', () => switchView('grid'));
+    
+    // Preview modal
+    closePreviewModal.addEventListener('click', closeVideoPreview);
+    videoPreviewModal.querySelector('.modal-overlay').addEventListener('click', closeVideoPreview);
+    previewDownloadBtn.addEventListener('click', () => {
+        if (currentPreviewVideo) {
+            handleDownloadFromPreview(currentPreviewVideo.url);
+        }
+    });
+    
+    // Error handling
+    retryBtn.addEventListener('click', handleRetry);
+    dismissErrorBtn.addEventListener('click', hideError);
+    
+    // Network status monitoring
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    // Check initial network status
+    if (!navigator.onLine) {
+        handleOffline();
+    }
 
     // Functions
     async function handleFetchClick() {
@@ -138,31 +214,43 @@ document.addEventListener('DOMContentLoaded', () => {
         showLoader();
         hideError();
         hideVideoInfo();
+        hidePlaylistInfo();
 
         try {
             // Fetch video info from the backend
             const videoData = await fetchVideoInfo(url);
             displayVideoInfo(videoData);
+            retryCount = 0; // Reset retry count on success
         } catch (error) {
             console.error('Error fetching video info:', error);
-            showError(error.message || 'Failed to fetch video information. Please check the URL and try again.');
+            showError(error.message || 'Failed to fetch video information. Please check the URL and try again.', {
+                retryable: true,
+                action: handleFetchClick
+            });
         } finally {
             hideLoader();
         }
     }
 
     async function fetchVideoInfo(url) {
-        const response = await fetch(`${API_BASE_URL}/api/info?url=${encodeURIComponent(url)}`);
-        
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.detail || 'Failed to fetch video information');
+        try {
+            const response = await fetchWithRetry(`${API_BASE_URL}/api/info?url=${encodeURIComponent(url)}`);
+            return await response.json();
+        } catch (error) {
+            throw new Error(error.message || 'Failed to fetch video information');
         }
-        
-        return await response.json();
     }
 
     function displayVideoInfo(data) {
+        // Check if it's a playlist or single video
+        if (data.type === 'playlist') {
+            displayPlaylistInfo(data);
+            return;
+        }
+        
+        // Hide playlist info if visible
+        playlistInfo.classList.add('hidden');
+        
         // Set video details
         videoTitle.textContent = data.title || 'Untitled Video';
         
@@ -192,8 +280,129 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelector('.tab-btn[data-tab="audio"]').style.display = 'none';
         }
         
+        // Add preview button for single video
+        addSingleVideoPreview(data);
+        
         // Show the video info section
         videoInfo.classList.remove('hidden');
+    }
+    
+    function addSingleVideoPreview(data) {
+        // Check if preview button already exists
+        let previewBtn = document.querySelector('.single-video-preview-btn');
+        if (!previewBtn) {
+            previewBtn = document.createElement('button');
+            previewBtn.className = 'single-video-preview-btn';
+            previewBtn.innerHTML = '<i class="fas fa-play-circle"></i> Preview Video';
+            
+            // Insert after thumbnail container
+            const thumbnailContainer = document.querySelector('.thumbnail-container');
+            if (thumbnailContainer) {
+                thumbnailContainer.insertAdjacentElement('afterend', previewBtn);
+            }
+        }
+        
+        // Update click handler
+        previewBtn.onclick = () => {
+            openVideoPreview({
+                title: data.title,
+                url: data.webpage_url || currentVideoUrl,
+                duration: data.duration,
+                thumbnail: data.thumbnail
+            });
+        };
+    }
+    
+    function displayPlaylistInfo(data) {
+        // Hide single video info
+        videoInfo.classList.add('hidden');
+        
+        // Store playlist data
+        currentPlaylistData = data;
+        selectedVideos.clear();
+        
+        // Set playlist details
+        playlistTitle.textContent = data.title || 'Untitled Playlist';
+        playlistCount.textContent = data.playlist_count || data.videos.length;
+        playlistUploader.textContent = data.uploader || 'Unknown';
+        
+        // Display playlist videos
+        playlistVideos.innerHTML = '';
+        data.videos.forEach((video, index) => {
+            const videoCard = document.createElement('div');
+            videoCard.className = 'playlist-video-card';
+            videoCard.dataset.videoId = video.id;
+            videoCard.dataset.videoUrl = video.url;
+            videoCard.dataset.videoIndex = index;
+            
+            const duration = video.duration ? formatDuration(video.duration) : 'N/A';
+            
+            videoCard.innerHTML = `
+                <div class="video-checkbox">
+                    <input type="checkbox" id="video-${index}" class="video-select-checkbox" data-video-url="${video.url}">
+                    <label for="video-${index}"></label>
+                </div>
+                <div class="video-thumbnail" data-video-preview>
+                    ${video.thumbnail ? `<img src="${video.thumbnail}" alt="${video.title}">` : '<div class="no-thumbnail"><i class="fas fa-video"></i></div>'}
+                    <div class="preview-overlay">
+                        <i class="fas fa-play-circle"></i>
+                        <span>Preview</span>
+                    </div>
+                </div>
+                <div class="video-info-text">
+                    <h4 class="video-title">${video.title}</h4>
+                    <p class="video-meta">Duration: ${duration}</p>
+                </div>
+                <div class="video-number">#${index + 1}</div>
+                <button class="video-preview-btn" data-video-preview>
+                    <i class="fas fa-eye"></i>
+                </button>
+            `;
+            
+            // Add event listener to checkbox
+            const checkbox = videoCard.querySelector('.video-select-checkbox');
+            checkbox.addEventListener('change', updateSelectedCount);
+            
+            // Add preview functionality
+            const previewElements = videoCard.querySelectorAll('[data-video-preview]');
+            previewElements.forEach(element => {
+                element.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openVideoPreview(video);
+                });
+            });
+            
+            playlistVideos.appendChild(videoCard);
+        });
+        
+        // Show playlist info
+        playlistInfo.classList.remove('hidden');
+        updateSelectedCount();
+    }
+    
+    function formatDuration(seconds) {
+        if (!seconds) return 'N/A';
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        
+        if (hours > 0) {
+            return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    }
+    
+    function updateSelectedCount() {
+        const checkboxes = document.querySelectorAll('.video-select-checkbox:checked');
+        const count = checkboxes.length;
+        selectedCount.textContent = count;
+        batchDownloadBtn.disabled = count === 0;
+        
+        // Update selected videos set
+        selectedVideos.clear();
+        checkboxes.forEach(cb => {
+            selectedVideos.add(cb.dataset.videoUrl);
+        });
     }
 
     function getFormatScore(format, os) {
@@ -409,19 +618,525 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchBtn.querySelector('span').textContent = 'Fetch Video';
     }
 
-    function showError(message) {
-        errorText.textContent = message;
+    function showError(message, options = {}) {
+        const { 
+            solution = null, 
+            retryable = false, 
+            action = null,
+            autoHide = true,
+            type = 'error' 
+        } = options;
+        
+        // Store action for retry
+        if (retryable && action) {
+            lastFailedAction = action;
+        }
+        
+        // Get helpful error message
+        const errorInfo = getErrorInfo(message);
+        errorText.textContent = errorInfo.message;
+        
+        // Show solution if available
+        if (solution || errorInfo.solution) {
+            errorSolution.innerHTML = `
+                <i class="fas fa-lightbulb"></i>
+                <div class="solution-text">
+                    <strong>Suggested Solution:</strong>
+                    <p>${solution || errorInfo.solution}</p>
+                </div>
+            `;
+            errorSolution.classList.remove('hidden');
+        } else {
+            errorSolution.classList.add('hidden');
+        }
+        
+        // Show/hide retry button
+        if (retryable && retryCount < MAX_RETRIES) {
+            errorActions.classList.remove('hidden');
+            retryBtn.style.display = 'flex';
+        } else {
+            retryBtn.style.display = 'none';
+        }
+        
+        // Always show dismiss button
+        errorActions.classList.remove('hidden');
+        
+        // Update error styling based on type
+        errorMessage.className = 'error-message';
+        if (type === 'warning') {
+            errorMessage.classList.add('warning');
+        } else if (type === 'info') {
+            errorMessage.classList.add('info');
+        }
+        
         errorMessage.classList.remove('hidden');
-        // Auto-hide error after 5 seconds
-        setTimeout(hideError, 5000);
+        
+        // Auto-hide after delay (except for retryable errors)
+        if (autoHide && !retryable) {
+            setTimeout(hideError, 8000);
+        }
+    }
+    
+    function getErrorInfo(message) {
+        // Parse error message and provide helpful solutions
+        const errorPatterns = [
+            {
+                pattern: /network|fetch|connection|offline/i,
+                message: 'Network connection error',
+                solution: 'Check your internet connection and try again. If the problem persists, the server might be temporarily unavailable.'
+            },
+            {
+                pattern: /404|not found/i,
+                message: 'Video not found',
+                solution: 'The video may have been removed, made private, or the URL is incorrect. Please verify the URL and try again.'
+            },
+            {
+                pattern: /403|forbidden|unauthorized/i,
+                message: 'Access denied',
+                solution: 'This video may be age-restricted, geo-blocked, or requires authentication. Try a different video.'
+            },
+            {
+                pattern: /timeout/i,
+                message: 'Request timed out',
+                solution: 'The server took too long to respond. This might be due to a slow connection or a large file. Please try again.'
+            },
+            {
+                pattern: /invalid|unsupported/i,
+                message: 'Invalid or unsupported URL',
+                solution: 'Please ensure you\'re using a valid video URL from a supported platform (YouTube, Facebook, Instagram, etc.).'
+            },
+            {
+                pattern: /rate limit|too many requests/i,
+                message: 'Too many requests',
+                solution: 'You\'ve made too many requests. Please wait a few minutes before trying again.'
+            },
+            {
+                pattern: /copyright|dmca/i,
+                message: 'Copyright restriction',
+                solution: 'This video is protected by copyright and cannot be downloaded. Please respect content creators\' rights.'
+            },
+            {
+                pattern: /no.*format/i,
+                message: 'No suitable format available',
+                solution: 'No downloadable formats were found for this video. It may be a live stream or have restricted access.'
+            }
+        ];
+        
+        for (const pattern of errorPatterns) {
+            if (pattern.pattern.test(message)) {
+                return {
+                    message: pattern.message,
+                    solution: pattern.solution
+                };
+            }
+        }
+        
+        // Default error
+        return {
+            message: message || 'An unexpected error occurred',
+            solution: 'Please try again. If the problem persists, try refreshing the page or using a different browser.'
+        };
     }
 
     function hideError() {
         errorMessage.classList.add('hidden');
+        errorSolution.classList.add('hidden');
+        errorActions.classList.add('hidden');
+        lastFailedAction = null;
+        retryCount = 0;
+    }
+    
+    async function handleRetry() {
+        if (!lastFailedAction || retryCount >= MAX_RETRIES) {
+            showError('Maximum retry attempts reached. Please try again later.', { retryable: false });
+            return;
+        }
+        
+        retryCount++;
+        hideError();
+        
+        // Update retry button to show attempt
+        retryBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Retrying (${retryCount}/${MAX_RETRIES})...`;
+        
+        try {
+            await lastFailedAction();
+            retryCount = 0; // Reset on success
+        } catch (error) {
+            console.error('Retry failed:', error);
+            showError(error.message, {
+                retryable: retryCount < MAX_RETRIES,
+                action: lastFailedAction
+            });
+        } finally {
+            retryBtn.innerHTML = '<i class="fas fa-redo"></i> Retry';
+        }
+    }
+    
+    function handleOnline() {
+        isOnline = true;
+        networkStatus.classList.add('hidden');
+        
+        // Show notification
+        const notification = document.createElement('div');
+        notification.className = 'network-notification online';
+        notification.innerHTML = '<i class="fas fa-wifi"></i> Back online!';
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.classList.add('fade-out');
+            setTimeout(() => notification.remove(), 300);
+        }, 3000);
+    }
+    
+    function handleOffline() {
+        isOnline = false;
+        networkStatus.classList.remove('hidden');
+    }
+    
+    async function fetchWithRetry(url, options = {}, maxRetries = 3) {
+        let lastError;
+        
+        for (let i = 0; i < maxRetries; i++) {
+            try {
+                // Check network status first
+                if (!isOnline) {
+                    throw new Error('No internet connection. Please check your network and try again.');
+                }
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+                
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        throw new Error('Video not found. Please check the URL and try again.');
+                    } else if (response.status === 403) {
+                        throw new Error('Access forbidden. This video may be private or restricted.');
+                    } else if (response.status === 429) {
+                        throw new Error('Rate limit exceeded. Please wait a moment before trying again.');
+                    } else {
+                        throw new Error(`Server error (${response.status}). Please try again later.`);
+                    }
+                }
+                
+                return response;
+            } catch (error) {
+                lastError = error;
+                
+                // Don't retry on certain errors
+                if (error.name === 'AbortError') {
+                    throw new Error('Request timeout. The server took too long to respond.');
+                }
+                
+                if (error.message.includes('forbidden') || 
+                    error.message.includes('not found') || 
+                    error.message.includes('No internet connection')) {
+                    throw error;
+                }
+                
+                // Wait before retrying (exponential backoff)
+                if (i < maxRetries - 1) {
+                    await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+                }
+            }
+        }
+        
+        throw lastError || new Error('Request failed after multiple attempts');
     }
 
     function hideVideoInfo() {
         videoInfo.classList.add('hidden');
+    }
+    
+    function hidePlaylistInfo() {
+        playlistInfo.classList.add('hidden');
+    }
+    
+    async function handleBatchDownload() {
+        if (selectedVideos.size === 0) {
+            showError('Please select at least one video to download');
+            return;
+        }
+        
+        const formatId = playlistFormatSelect.value;
+        const videosToDownload = Array.from(selectedVideos);
+        
+        // Show batch progress container
+        batchProgress.classList.remove('hidden');
+        batchProgressList.innerHTML = '';
+        
+        // Disable batch download button
+        batchDownloadBtn.disabled = true;
+        batchDownloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...';
+        
+        // Create progress items for each video
+        const progressItems = new Map();
+        videosToDownload.forEach((videoUrl, index) => {
+            const video = currentPlaylistData.videos.find(v => v.url === videoUrl);
+            const progressItem = createBatchProgressItem(video, index);
+            batchProgressList.appendChild(progressItem);
+            progressItems.set(videoUrl, progressItem);
+        });
+        
+        // Download videos sequentially
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (const videoUrl of videosToDownload) {
+            const progressItem = progressItems.get(videoUrl);
+            const statusElement = progressItem.querySelector('.batch-item-status');
+            const progressBar = progressItem.querySelector('.batch-item-progress-bar');
+            
+            try {
+                // Update status to downloading
+                statusElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...';
+                progressItem.classList.add('downloading');
+                
+                // Start download
+                const response = await fetchWithRetry(`${API_BASE_URL}/api/download?url=${encodeURIComponent(videoUrl)}&format_id=${formatId}`);
+                
+                if (!response.ok) {
+                    throw new Error('Download failed');
+                }
+                
+                // Get content length for progress
+                const contentLength = response.headers.get('content-length');
+                const reader = response.body.getReader();
+                const chunks = [];
+                let receivedLength = 0;
+                
+                while (true) {
+                    const {done, value} = await reader.read();
+                    
+                    if (done) break;
+                    
+                    chunks.push(value);
+                    receivedLength += value.length;
+                    
+                    if (contentLength) {
+                        const percentComplete = Math.round((receivedLength / contentLength) * 100);
+                        progressBar.style.width = `${percentComplete}%`;
+                    }
+                }
+                
+                // Combine chunks and download
+                const blob = new Blob(chunks);
+                const blobUrl = window.URL.createObjectURL(blob);
+                
+                // Get filename from Content-Disposition header
+                const contentDisposition = response.headers.get('content-disposition');
+                let filename = 'video.mp4';
+                if (contentDisposition) {
+                    const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+                    if (matches && matches[1]) {
+                        filename = matches[1].replace(/['"]/g, '');
+                    }
+                }
+                
+                // Trigger download
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = filename;
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(blobUrl);
+                
+                // Update status to completed
+                statusElement.innerHTML = '<i class="fas fa-check-circle"></i> Completed';
+                progressItem.classList.remove('downloading');
+                progressItem.classList.add('completed');
+                progressBar.style.width = '100%';
+                successCount++;
+                
+                // Small delay between downloads to avoid overwhelming the server
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+            } catch (error) {
+                console.error(`Error downloading video ${videoUrl}:`, error);
+                statusElement.innerHTML = '<i class="fas fa-exclamation-circle"></i> Failed';
+                progressItem.classList.remove('downloading');
+                progressItem.classList.add('failed');
+                failCount++;
+            }
+        }
+        
+        // Show summary
+        const summaryText = `Batch download completed: ${successCount} successful, ${failCount} failed`;
+        const summaryType = failCount > 0 ? (successCount > 0 ? 'warning' : 'error') : 'info';
+        showError(summaryText, { type: summaryType, autoHide: true });
+        
+        // Re-enable batch download button
+        batchDownloadBtn.disabled = false;
+        batchDownloadBtn.innerHTML = '<i class="fas fa-download"></i> <span>Download Selected (<span id="selectedCount">' + selectedVideos.size + '</span>)</span>';
+        
+        // Auto-hide batch progress after a delay
+        setTimeout(() => {
+            batchProgress.classList.add('hidden');
+        }, 5000);
+    }
+    
+    function createBatchProgressItem(video, index) {
+        const item = document.createElement('div');
+        item.className = 'batch-progress-item';
+        item.innerHTML = `
+            <div class="batch-item-header">
+                <span class="batch-item-number">#${index + 1}</span>
+                <span class="batch-item-title">${video.title}</span>
+                <span class="batch-item-status"><i class="fas fa-clock"></i> Waiting...</span>
+            </div>
+            <div class="batch-item-progress">
+                <div class="batch-item-progress-bar"></div>
+            </div>
+        `;
+        return item;
+    }
+    
+    function switchView(mode) {
+        playlistViewMode = mode;
+        
+        if (mode === 'list') {
+            listViewBtn.classList.add('active');
+            gridViewBtn.classList.remove('active');
+            playlistVideos.classList.remove('grid-view');
+            playlistVideos.classList.add('list-view');
+        } else {
+            gridViewBtn.classList.add('active');
+            listViewBtn.classList.remove('active');
+            playlistVideos.classList.add('grid-view');
+            playlistVideos.classList.remove('list-view');
+        }
+    }
+    
+    function openVideoPreview(video) {
+        currentPreviewVideo = video;
+        
+        // Set modal content
+        previewTitle.textContent = video.title;
+        previewDuration.textContent = video.duration ? `Duration: ${formatDuration(video.duration)}` : '';
+        previewUrl.textContent = video.url;
+        
+        // Create video player
+        videoPlayerContainer.innerHTML = '';
+        
+        // Check if it's a YouTube video
+        const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+        const youtubeMatch = video.url.match(youtubeRegex);
+        
+        if (youtubeMatch && youtubeMatch[1]) {
+            // Create YouTube iframe
+            const iframe = document.createElement('iframe');
+            iframe.src = `https://www.youtube.com/embed/${youtubeMatch[1]}`;
+            iframe.width = '100%';
+            iframe.height = '100%';
+            iframe.frameBorder = '0';
+            iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+            iframe.allowFullscreen = true;
+            videoPlayerContainer.appendChild(iframe);
+        } else {
+            // For non-YouTube videos, show thumbnail with play button
+            const previewContent = document.createElement('div');
+            previewContent.className = 'preview-content';
+            previewContent.innerHTML = `
+                ${video.thumbnail ? `<img src="${video.thumbnail}" alt="${video.title}" class="preview-thumbnail">` : '<div class="no-preview"><i class="fas fa-video"></i><p>Preview not available</p></div>'}
+                <div class="preview-note">
+                    <i class="fas fa-info-circle"></i>
+                    <p>Full video preview is only available for YouTube videos. Download to view.</p>
+                </div>
+            `;
+            videoPlayerContainer.appendChild(previewContent);
+        }
+        
+        // Show modal
+        videoPreviewModal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+    
+    function closeVideoPreview() {
+        videoPreviewModal.classList.add('hidden');
+        document.body.style.overflow = '';
+        
+        // Clear player
+        videoPlayerContainer.innerHTML = '';
+        currentPreviewVideo = null;
+    }
+    
+    async function handleDownloadFromPreview(videoUrl) {
+        // Close preview modal
+        closeVideoPreview();
+        
+        // Show progress
+        showProgress('Preparing download...');
+        
+        // Get format (use best quality by default)
+        const formatId = playlistFormatSelect.value || 'best';
+        
+        try {
+            const response = await fetchWithRetry(`${API_BASE_URL}/api/download?url=${encodeURIComponent(videoUrl)}&format_id=${formatId}`);
+            
+            if (!response.ok) {
+                throw new Error('Download failed');
+            }
+            
+            // Get content length for progress
+            const contentLength = response.headers.get('content-length');
+            const reader = response.body.getReader();
+            const chunks = [];
+            let receivedLength = 0;
+            
+            while (true) {
+                const {done, value} = await reader.read();
+                
+                if (done) break;
+                
+                chunks.push(value);
+                receivedLength += value.length;
+                
+                if (contentLength) {
+                    const percentComplete = Math.round((receivedLength / contentLength) * 100);
+                    updateProgress(percentComplete, `Downloading: ${percentComplete}%`);
+                }
+            }
+            
+            // Combine chunks and download
+            const blob = new Blob(chunks);
+            const blobUrl = window.URL.createObjectURL(blob);
+            
+            // Get filename from Content-Disposition header
+            const contentDisposition = response.headers.get('content-disposition');
+            let filename = 'video.mp4';
+            if (contentDisposition) {
+                const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+                if (matches && matches[1]) {
+                    filename = matches[1].replace(/['"]/g, '');
+                }
+            }
+            
+            // Trigger download
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = filename;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(blobUrl);
+            
+            updateProgress(100, 'Download complete!');
+            setTimeout(hideProgress, 2000);
+            
+        } catch (error) {
+            console.error('Download error:', error);
+            showError('Failed to download video. Please try again.');
+            hideProgress();
+        }
     }
 
     function showProgress(message) {

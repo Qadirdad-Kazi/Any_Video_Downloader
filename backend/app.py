@@ -22,7 +22,51 @@ app.add_middleware(
 DOWNLOADS_DIR = "downloads"
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
+def is_playlist(url: str) -> bool:
+    """Check if URL is a playlist"""
+    return 'playlist' in url.lower() or 'list=' in url.lower()
+
+def get_playlist_info(url: str) -> dict:
+    """Extract playlist information and all videos"""
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': True,  # Don't download, just get metadata
+        'skip_download': True,
+    }
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+            # Check if it's actually a playlist
+            if info.get('_type') != 'playlist':
+                return None
+            
+            videos = []
+            for entry in info.get('entries', [])[:50]:  # Limit to first 50 videos
+                if entry:
+                    videos.append({
+                        'id': entry.get('id'),
+                        'title': entry.get('title', 'Unknown'),
+                        'url': entry.get('url') or entry.get('webpage_url') or f"https://www.youtube.com/watch?v={entry.get('id')}",
+                        'duration': entry.get('duration', 0),
+                        'thumbnail': entry.get('thumbnail') or entry.get('thumbnails', [{}])[-1].get('url'),
+                    })
+            
+            return {
+                'type': 'playlist',
+                'title': info.get('title', 'Playlist'),
+                'playlist_count': info.get('playlist_count', len(videos)),
+                'uploader': info.get('uploader', 'Unknown'),
+                'videos': videos
+            }
+    except Exception as e:
+        print(f"Playlist extraction error: {str(e)}")
+        return None
+
 def get_video_info(url: str) -> dict:
+    """Get information for a single video"""
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -33,10 +77,17 @@ def get_video_info(url: str) -> dict:
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
+            
+            # If it's a playlist, handle it differently
+            if info.get('_type') == 'playlist':
+                return get_playlist_info(url)
+            
             return {
+                'type': 'video',
                 'title': info.get('title', 'video'),
                 'thumbnail': info.get('thumbnail'),
                 'duration': info.get('duration'),
+                'webpage_url': info.get('webpage_url', url),
                 'formats': [
                     {
                         'format_id': fmt.get('format_id'),
@@ -137,6 +188,51 @@ async def download(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.post("/api/batch-download")
+async def batch_download(request: dict):
+    """Download multiple videos in batch"""
+    try:
+        videos = request.get('videos', [])
+        format_id = request.get('format_id', 'best')
+        
+        if not videos:
+            raise HTTPException(status_code=400, detail="No videos provided")
+        
+        results = []
+        for video in videos:
+            video_url = video.get('url')
+            if not video_url:
+                continue
+                
+            try:
+                # Get video info
+                video_info = get_video_info(video_url)
+                if video_info.get('type') == 'playlist':
+                    # Skip nested playlists
+                    continue
+                
+                # Generate unique filename
+                safe_title = "".join(c if c.isalnum() or c in ' ._-' else '_' for c in video_info.get('title', 'video'))
+                
+                results.append({
+                    'url': video_url,
+                    'title': video_info.get('title'),
+                    'status': 'ready',
+                    'filename': safe_title
+                })
+            except Exception as e:
+                results.append({
+                    'url': video_url,
+                    'title': video.get('title', 'Unknown'),
+                    'status': 'error',
+                    'error': str(e)
+                })
+        
+        return JSONResponse(content={'results': results})
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch download error: {str(e)}")
 
 @app.get("/")
 async def root():
