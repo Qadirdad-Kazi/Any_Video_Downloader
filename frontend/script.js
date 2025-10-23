@@ -32,6 +32,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const retryBtn = document.getElementById('retryBtn');
     const dismissErrorBtn = document.getElementById('dismissErrorBtn');
     const networkStatus = document.getElementById('networkStatus');
+    const themeToggle = document.getElementById('themeToggle');
+    const skeletonLoader = document.getElementById('skeletonLoader');
+    const skeletonPlaylist = document.getElementById('skeletonPlaylist');
+    const installPrompt = document.getElementById('installPrompt');
+    const installBtn = document.getElementById('installBtn');
+    const dismissInstallBtn = document.getElementById('dismissInstallBtn');
     const videoTitle = document.getElementById('videoTitle');
     const videoThumbnail = document.getElementById('thumbnail');
     const videoDuration = document.getElementById('videoDuration');
@@ -95,6 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let retryCount = 0;
     const MAX_RETRIES = 3;
     let isOnline = navigator.onLine;
+    let deferredInstallPrompt = null;
     
     // Event Listeners
     fetchBtn.addEventListener('click', async () => {
@@ -201,6 +208,44 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!navigator.onLine) {
         handleOffline();
     }
+    
+    // Theme toggle
+    themeToggle.addEventListener('click', toggleTheme);
+    
+    // Initialize theme from localStorage or system preference
+    initializeTheme();
+    
+    // PWA Install prompt
+    installBtn.addEventListener('click', handleInstall);
+    dismissInstallBtn.addEventListener('click', dismissInstallPrompt);
+    
+    // Listen for beforeinstallprompt event
+    window.addEventListener('beforeinstallprompt', (e) => {
+        // Prevent the mini-infobar from appearing on mobile
+        e.preventDefault();
+        // Save the event so it can be triggered later
+        deferredInstallPrompt = e;
+        // Show custom install prompt
+        showInstallPrompt();
+    });
+    
+    // Listen for app installed
+    window.addEventListener('appinstalled', () => {
+        console.log('PWA installed successfully');
+        deferredInstallPrompt = null;
+        hideInstallPrompt();
+        
+        // Show success notification
+        const notification = document.createElement('div');
+        notification.className = 'network-notification online';
+        notification.innerHTML = '<i class="fas fa-check-circle"></i> App installed successfully!';
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.classList.add('fade-out');
+            setTimeout(() => notification.remove(), 300);
+        }, 3000);
+    });
 
     // Functions
     async function handleFetchClick() {
@@ -210,15 +255,26 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Show loader and hide any previous results/errors
-        showLoader();
+        // Show appropriate loader and hide any previous results/errors
         hideError();
         hideVideoInfo();
         hidePlaylistInfo();
 
         try {
+            // Show loader (will determine type after fetch)
+            showLoader('video');
+            
             // Fetch video info from the backend
             const videoData = await fetchVideoInfo(url);
+            
+            // Update loader type if it's a playlist
+            if (videoData.type === 'playlist') {
+                hideLoader();
+                showLoader('playlist');
+                // Add small delay for skeleton animation
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
             displayVideoInfo(videoData);
             retryCount = 0; // Reset retry count on success
         } catch (error) {
@@ -554,7 +610,7 @@ document.addEventListener('DOMContentLoaded', () => {
             a.style.display = 'none';
             
             // Show better progress for larger files
-            showProgress(0, 'Starting download...');
+            showProgress('Starting download...');
             
             // Use fetch API for better progress tracking
             const response = await fetch(downloadUrl);
@@ -562,6 +618,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const reader = response.body.getReader();
             const chunks = [];
             let receivedLength = 0;
+            const startTime = Date.now();
             
             while (true) {
                 const {done, value} = await reader.read();
@@ -573,7 +630,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (contentLength) {
                     const percentComplete = Math.round((receivedLength / contentLength) * 100);
-                    showProgress(percentComplete, `Downloading: ${percentComplete}%`);
+                    const stats = calculateDownloadStats(receivedLength, contentLength, startTime);
+                    updateProgress(percentComplete, `Downloading...`, stats);
                 }
             }
             
@@ -602,8 +660,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // UI Helper Functions
-    function showLoader() {
-        loader.classList.remove('hidden');
+    function showLoader(type = 'video') {
+        // Hide old loader
+        loader.classList.add('hidden');
+        
+        // Show appropriate skeleton
+        if (type === 'playlist') {
+            skeletonPlaylist.classList.remove('hidden');
+            skeletonLoader.classList.add('hidden');
+        } else {
+            skeletonLoader.classList.remove('hidden');
+            skeletonPlaylist.classList.add('hidden');
+        }
+        
         fetchBtn.disabled = true;
         fetchBtn.classList.add('loading');
         fetchBtn.querySelector('i').className = 'fas fa-spinner';
@@ -612,10 +681,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function hideLoader() {
         loader.classList.add('hidden');
+        skeletonLoader.classList.add('hidden');
+        skeletonPlaylist.classList.add('hidden');
         fetchBtn.disabled = false;
         fetchBtn.classList.remove('loading');
         fetchBtn.querySelector('i').className = 'fas fa-play';
-        fetchBtn.querySelector('span').textContent = 'Fetch Video';
+        fetchBtn.querySelector('span').textContent = 'Paste or Drop URL';
     }
 
     function showError(message, options = {}) {
@@ -910,6 +981,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const reader = response.body.getReader();
                 const chunks = [];
                 let receivedLength = 0;
+                const startTime = Date.now();
                 
                 while (true) {
                     const {done, value} = await reader.read();
@@ -922,6 +994,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (contentLength) {
                         const percentComplete = Math.round((receivedLength / contentLength) * 100);
                         progressBar.style.width = `${percentComplete}%`;
+                        
+                        // Update progress stats if elements exist
+                        const percentElement = progressBar.parentElement.parentElement.querySelector('.progress-percentage');
+                        if (percentElement) {
+                            percentElement.textContent = `${percentComplete}%`;
+                        }
                     }
                 }
                 
@@ -1090,6 +1168,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const reader = response.body.getReader();
             const chunks = [];
             let receivedLength = 0;
+            const startTime = Date.now();
             
             while (true) {
                 const {done, value} = await reader.read();
@@ -1101,7 +1180,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (contentLength) {
                     const percentComplete = Math.round((receivedLength / contentLength) * 100);
-                    updateProgress(percentComplete, `Downloading: ${percentComplete}%`);
+                    const stats = calculateDownloadStats(receivedLength, contentLength, startTime);
+                    updateProgress(percentComplete, `Downloading...`, stats);
                 }
             }
             
@@ -1142,19 +1222,161 @@ document.addEventListener('DOMContentLoaded', () => {
     function showProgress(message) {
         progressContainer.classList.remove('hidden');
         progressBar.style.width = '0%';
+        document.querySelector('.progress-percentage').textContent = '0%';
+        document.querySelector('.progress-speed').textContent = 'Speed: -- MB/s';
+        document.querySelector('.progress-eta').textContent = 'ETA: Calculating...';
         progressText.textContent = message;
     }
 
-    function updateProgress(percent, message) {
+    function updateProgress(percent, message, stats = {}) {
         progressBar.style.width = `${percent}%`;
-        if (message) progressText.textContent = message;
+        document.querySelector('.progress-percentage').textContent = `${percent}%`;
+        
+        if (stats.speed) {
+            document.querySelector('.progress-speed').textContent = `Speed: ${stats.speed}`;
+        }
+        
+        if (stats.eta) {
+            document.querySelector('.progress-eta').textContent = `ETA: ${stats.eta}`;
+        }
+        
+        if (message) {
+            progressText.textContent = message;
+        }
     }
 
     function hideProgress() {
         progressContainer.classList.add('hidden');
     }
+    
+    function calculateDownloadStats(receivedLength, contentLength, startTime) {
+        const elapsedTime = (Date.now() - startTime) / 1000; // seconds
+        const speed = receivedLength / elapsedTime; // bytes per second
+        const speedMB = (speed / (1024 * 1024)).toFixed(2);
+        
+        const remainingBytes = contentLength - receivedLength;
+        const etaSeconds = remainingBytes / speed;
+        
+        let eta;
+        if (etaSeconds < 60) {
+            eta = `${Math.round(etaSeconds)}s`;
+        } else if (etaSeconds < 3600) {
+            const minutes = Math.floor(etaSeconds / 60);
+            const seconds = Math.round(etaSeconds % 60);
+            eta = `${minutes}m ${seconds}s`;
+        } else {
+            const hours = Math.floor(etaSeconds / 3600);
+            const minutes = Math.floor((etaSeconds % 3600) / 60);
+            eta = `${hours}h ${minutes}m`;
+        }
+        
+        return {
+            speed: `${speedMB} MB/s`,
+            eta: eta
+        };
+    }
 
     // Initialize tabs
     document.querySelector('.tab-btn[data-tab="video"]').classList.add('active');
     document.getElementById('videoFormats').classList.remove('hidden');
+    
+    // Theme Functions
+    function initializeTheme() {
+        // Check localStorage first
+        const savedTheme = localStorage.getItem('theme');
+        
+        if (savedTheme) {
+            setTheme(savedTheme);
+        } else {
+            // Check system preference
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            setTheme(prefersDark ? 'dark' : 'light');
+        }
+        
+        // Listen for system theme changes
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+            if (!localStorage.getItem('theme')) {
+                setTheme(e.matches ? 'dark' : 'light');
+            }
+        });
+    }
+    
+    function toggleTheme() {
+        const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        setTheme(newTheme);
+        localStorage.setItem('theme', newTheme);
+        
+        // Add animation class
+        themeToggle.classList.add('theme-switching');
+        setTimeout(() => {
+            themeToggle.classList.remove('theme-switching');
+        }, 300);
+    }
+    
+    function setTheme(theme) {
+        if (theme === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+        } else {
+            document.documentElement.removeAttribute('data-theme');
+        }
+    }
+    
+    // PWA Install Functions
+    function showInstallPrompt() {
+        // Don't show if already installed or dismissed
+        if (localStorage.getItem('installPromptDismissed') === 'true') {
+            return;
+        }
+        
+        // Check if already installed
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            return;
+        }
+        
+        // Show prompt after 3 seconds
+        setTimeout(() => {
+            installPrompt.classList.remove('hidden');
+        }, 3000);
+    }
+    
+    function hideInstallPrompt() {
+        installPrompt.classList.add('hidden');
+    }
+    
+    function dismissInstallPrompt() {
+        hideInstallPrompt();
+        localStorage.setItem('installPromptDismissed', 'true');
+    }
+    
+    async function handleInstall() {
+        if (!deferredInstallPrompt) {
+            // Already installed or not available
+            alert('App is already installed or installation is not available on this device.');
+            return;
+        }
+        
+        // Show the install prompt
+        deferredInstallPrompt.prompt();
+        
+        // Wait for the user's response
+        const { outcome } = await deferredInstallPrompt.userChoice;
+        console.log(`User response to install prompt: ${outcome}`);
+        
+        if (outcome === 'accepted') {
+            console.log('User accepted the install prompt');
+        } else {
+            console.log('User dismissed the install prompt');
+        }
+        
+        // Clear the deferred prompt
+        deferredInstallPrompt = null;
+        hideInstallPrompt();
+    }
+    
+    // Check if running as installed PWA
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+        console.log('Running as installed PWA');
+        document.body.classList.add('pwa-installed');
+    }
 });

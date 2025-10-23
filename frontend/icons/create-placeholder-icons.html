@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generate PWA Icons - AnyDownloader</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #0a0e17;
+            color: #e2e8f0;
+        }
+        h1 {
+            color: #00f7ff;
+        }
+        .icon-generator {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 30px;
+            border-radius: 12px;
+            margin: 20px 0;
+        }
+        canvas {
+            border: 2px solid #00f7ff;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        button {
+            background: linear-gradient(90deg, #00f7ff, #7b2cbf);
+            color: #0a0e17;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 247, 255, 0.4);
+        }
+        .instructions {
+            background: rgba(0, 247, 255, 0.1);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎨 AnyDownloader Icon Generator</h1>
+    
+    <div class="instructions">
+        <h3>Instructions:</h3>
+        <ol>
+            <li>Click "Generate All Icons" below</li>
+            <li>Download each icon by clicking its "Download" button</li>
+            <li>Save all icons to the <code>frontend/icons/</code> folder</li>
+            <li>Your PWA will now have proper icons!</li>
+        </ol>
+    </div>
+
+    <div class="icon-generator">
+        <button onclick="generateAllIcons()">🚀 Generate All Icons</button>
+        <div id="icons-container"></div>
+    </div>
+
+    <script>
+        const sizes = [72, 96, 128, 144, 152, 192, 384, 512];
+        
+        function generateIcon(size) {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            
+            // Create gradient background
+            const gradient = ctx.createLinearGradient(0, 0, size, size);
+            gradient.addColorStop(0, '#00f7ff');
+            gradient.addColorStop(1, '#7b2cbf');
+            
+            // Draw rounded rectangle
+            const radius = size * 0.2;
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.roundRect(0, 0, size, size, radius);
+            ctx.fill();
+            
+            // Add text "AD"
+            ctx.fillStyle = 'white';
+            ctx.font = `bold ${size * 0.45}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('AD', size / 2, size / 2);
+            
+            return canvas;
+        }
+        
+        function generateAllIcons() {
+            const container = document.getElementById('icons-container');
+            container.innerHTML = '';
+            
+            sizes.forEach(size => {
+                const wrapper = document.createElement('div');
+                wrapper.style.margin = '20px 0';
+                wrapper.style.padding = '15px';
+                wrapper.style.background = 'rgba(255, 255, 255, 0.02)';
+                wrapper.style.borderRadius = '8px';
+                
+                const title = document.createElement('h4');
+                title.textContent = `${size}x${size}`;
+                title.style.color = '#00f7ff';
+                
+                const canvas = generateIcon(size);
+                canvas.style.display = 'block';
+                canvas.style.margin = '10px 0';
+                
+                const downloadBtn = document.createElement('button');
+                downloadBtn.textContent = `💾 Download icon-${size}x${size}.png`;
+                downloadBtn.onclick = () => {
+                    const link = document.createElement('a');
+                    link.download = `icon-${size}x${size}.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                };
+                
+                wrapper.appendChild(title);
+                wrapper.appendChild(canvas);
+                wrapper.appendChild(downloadBtn);
+                container.appendChild(wrapper);
+            });
+        }
+        
+        // Auto-generate on load
+        generateAllIcons();
+    </script>
+</body>
+</html>
+
