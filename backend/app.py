@@ -1,11 +1,12 @@
 import os
-from fastapi import FastAPI, HTTPException, Query
+import uuid
+import time
+import asyncio
+from typing import Dict, List, Optional
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 import yt_dlp
-import os
-import uuid
-from typing import Dict, List, Optional
 
 app = FastAPI(title="AnyDownloader API")
 
@@ -21,6 +22,32 @@ app.add_middleware(
 # Ensure downloads directory exists
 DOWNLOADS_DIR = "downloads"
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+
+# Simple in-memory cache for video info
+INFO_CACHE = {}
+CACHE_TTL = 3600  # 1 hour in seconds
+
+# WebSocket connection manager
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, client_id: str):
+        await websocket.accept()
+        self.active_connections[client_id] = websocket
+
+    def disconnect(self, client_id: str):
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+
+    async def send_progress(self, message: dict, client_id: str):
+        if client_id in self.active_connections:
+            try:
+                await self.active_connections[client_id].send_json(message)
+            except Exception:
+                pass
+
+manager = ConnectionManager()
 
 def is_playlist(url: str) -> bool:
     """Check if URL is a playlist"""
@@ -68,10 +95,11 @@ def get_playlist_info(url: str) -> dict:
 def get_video_info(url: str) -> dict:
     """Get information for a single video"""
     ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
+        'quiet': False,
+        'no_warnings': False,
         'skip_download': True,
         'extract_flat': False,
+        'verbose': True,
     }
     
     try:
@@ -136,8 +164,18 @@ def download_video(url: str, format_id: str = 'best') -> str:
 @app.get("/api/info")
 async def get_info(url: str = Query(..., description="The URL of the video to download")):
     """Get information about the video including available formats"""
+    # Check cache
+    current_time = time.time()
+    if url in INFO_CACHE:
+        cached_data, timestamp = INFO_CACHE[url]
+        if current_time - timestamp < CACHE_TTL:
+            return JSONResponse(content=cached_data)
+        else:
+            del INFO_CACHE[url]
+            
     try:
         info = get_video_info(url)
+        INFO_CACHE[url] = (info, current_time)
         return JSONResponse(content=info)
     except HTTPException:
         raise
@@ -147,7 +185,8 @@ async def get_info(url: str = Query(..., description="The URL of the video to do
 @app.get("/api/download")
 async def download(
     url: str = Query(..., description="The URL of the video to download"),
-    format_id: str = Query('best', description="The format ID to download")
+    format_id: str = Query('best', description="The format ID to download"),
+    client_id: str = Query(None, description="Client ID for WebSocket progress")
 ):
     """Download the video in the specified format"""
     try:
@@ -173,6 +212,44 @@ async def download(
                 'preferedformat': 'mp4',
             }],
         }
+        
+        # Add progress hook if client_id is provided
+        if client_id:
+            def progress_hook(d):
+                if d['status'] == 'downloading':
+                    try:
+                        # Extract percentage safely
+                        percent_str = d.get('_percent_str', '0.0%').strip('\x1b[0;94m').strip('\x1b[0m').replace('%', '').strip()
+                        speed = d.get('_speed_str', 'N/A').strip('\x1b[0;92m').strip('\x1b[0m')
+                        eta = d.get('_eta_str', 'N/A').strip('\x1b[0;93m').strip('\x1b[0m')
+                        
+                        try:
+                            percent = float(percent_str)
+                        except ValueError:
+                            percent = 0.0
+
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            loop.create_task(manager.send_progress({
+                                "status": "downloading",
+                                "percent": percent,
+                                "speed": speed,
+                                "eta": eta,
+                                "filename": d.get('filename', '')
+                            }, client_id))
+                    except Exception as e:
+                        print(f"Hook error: {e}")
+                        
+                elif d['status'] == 'finished':
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(manager.send_progress({
+                            "status": "converting",
+                            "percent": 100,
+                            "message": "Download finished, processing/converting..."
+                        }, client_id))
+
+            ydl_opts['progress_hooks'] = [progress_hook]
         
         # Download the video
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -244,6 +321,16 @@ async def batch_download(request: dict):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Batch download error: {str(e)}")
+
+@app.websocket("/ws/progress/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    await manager.connect(websocket, client_id)
+    try:
+        while True:
+            # Keep connection alive
+            data = await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(client_id)
 
 @app.get("/")
 async def root():

@@ -32,6 +32,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const previewUrl = document.getElementById('previewUrl');
     const videoPlayerContainer = document.getElementById('videoPlayerContainer');
     const previewDownloadBtn = document.getElementById('previewDownloadBtn');
+    
+    // History DOM Elements
+    const historyBtn = document.getElementById('historyBtn');
+    const historyModal = document.getElementById('historyModal');
+    const closeHistoryModal = document.getElementById('closeHistoryModal');
+    const historyContainer = document.getElementById('historyContainer');
+    const emptyHistory = document.getElementById('emptyHistory');
+    const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+    
     const errorMessage = document.getElementById('errorMessage');
     const errorText = document.getElementById('errorText');
     const errorSolution = document.getElementById('errorSolution');
@@ -318,6 +327,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
+    // History modal
+    historyBtn.addEventListener('click', openHistoryModal);
+    closeHistoryModal.addEventListener('click', closeHistoryModalFunc);
+    historyModal.querySelector('.modal-overlay').addEventListener('click', closeHistoryModalFunc);
+    clearHistoryBtn.addEventListener('click', () => {
+        if (confirm('Are you sure you want to clear your download history?')) {
+            localStorage.removeItem('anydownloader_history');
+            renderHistory();
+        }
+    });
+    
     // Error handling
     retryBtn.addEventListener('click', handleRetry);
     dismissErrorBtn.addEventListener('click', hideError);
@@ -399,6 +419,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Add small delay for skeleton animation
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
+            
+            saveToHistory({
+                title: videoData.title,
+                url: url,
+                thumbnail: videoData.thumbnail || '',
+                type: videoData.type,
+                timestamp: Date.now()
+            });
             
             displayVideoInfo(videoData);
             retryCount = 0; // Reset retry count on success
@@ -713,7 +741,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const title = videoInfo.title || 'video';
             
             // Ensure the format is compatible with QuickTime
-            const formatInfo = [...videoInfo.formats, ...(videoInfo.requested_formats || [])]
+            const formatInfo = [...(videoInfo.formats || []), ...(videoInfo.requested_formats || [])]
                 .find(f => f.format_id === formatId);
             
             // Determine the best file extension
@@ -733,8 +761,22 @@ document.addEventListener('DOMContentLoaded', () => {
             // Create a temporary anchor element for the download
             const a = document.createElement('a');
             
+            // WebSocket setup
+            const clientId = Math.random().toString(36).substring(7);
+            const wsUrl = API_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://') + `/ws/progress/${clientId}`;
+            const ws = new WebSocket(wsUrl);
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.status === 'downloading') {
+                    updateProgress(data.percent, `Downloading...`, { speed: data.speed, eta: data.eta });
+                } else if (data.status === 'converting') {
+                    updateProgress(data.percent, data.message);
+                }
+            };
+            
             // Set up the download URL with proper parameters
-            const downloadUrl = `${API_BASE_URL}/api/download?url=${encodeURIComponent(url)}&format_id=${formatId}`;
+            const downloadUrl = `${API_BASE_URL}/api/download?url=${encodeURIComponent(url)}&format_id=${formatId}&client_id=${clientId}`;
             
             // Set the download attributes
             a.href = downloadUrl;
@@ -785,6 +827,9 @@ document.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => {
                 document.body.removeChild(a);
                 window.URL.revokeObjectURL(blobUrl);
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
                 showProgress(100, 'Download complete!');
                 setTimeout(hideProgress, 2000);
             }, 100);
@@ -1012,7 +1057,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+                // Increase timeout to 10 minutes (600,000 ms) to accommodate large downloads and playlist extraction
+                const timeoutMs = options.timeout || 600000;
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs); 
                 
                 const response = await fetch(url, {
                     ...options,
@@ -1106,8 +1153,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...';
                 progressItem.classList.add('downloading');
                 
+                // WebSocket setup for batch item
+                const clientId = Math.random().toString(36).substring(7);
+                const wsUrl = API_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://') + `/ws/progress/${clientId}`;
+                const ws = new WebSocket(wsUrl);
+                
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.status === 'downloading') {
+                        progressBar.style.width = `${data.percent}%`;
+                        statusElement.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Downloading: ${data.speed} ETA: ${data.eta}`;
+                    } else if (data.status === 'converting') {
+                        statusElement.innerHTML = `<i class="fas fa-cog fa-spin"></i> Converting...`;
+                    }
+                };
+
                 // Start download
-                const response = await fetchWithRetry(`${API_BASE_URL}/api/download?url=${encodeURIComponent(videoUrl)}&format_id=${formatId}`);
+                const response = await fetchWithRetry(`${API_BASE_URL}/api/download?url=${encodeURIComponent(videoUrl)}&format_id=${formatId}&client_id=${clientId}`);
                 
                 if (!response.ok) {
                     throw new Error('Download failed');
@@ -1164,6 +1226,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.body.removeChild(a);
                 window.URL.revokeObjectURL(blobUrl);
                 
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
+                
                 // Update status to completed
                 statusElement.innerHTML = '<i class="fas fa-check-circle"></i> Completed';
                 progressItem.classList.remove('downloading');
@@ -1175,6 +1241,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 await new Promise(resolve => setTimeout(resolve, 500));
                 
             } catch (error) {
+                if (typeof ws !== 'undefined' && ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
                 console.error(`Error downloading video ${videoUrl}:`, error);
                 statusElement.innerHTML = '<i class="fas fa-exclamation-circle"></i> Failed';
                 progressItem.classList.remove('downloading');
@@ -1294,7 +1363,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const formatId = playlistFormatSelect.value || 'best';
         
         try {
-            const response = await fetchWithRetry(`${API_BASE_URL}/api/download?url=${encodeURIComponent(videoUrl)}&format_id=${formatId}`);
+            const clientId = Math.random().toString(36).substring(7);
+            const wsUrl = API_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://') + `/ws/progress/${clientId}`;
+            const ws = new WebSocket(wsUrl);
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.status === 'downloading') {
+                    updateProgress(data.percent, `Downloading...`, { speed: data.speed, eta: data.eta });
+                } else if (data.status === 'converting') {
+                    updateProgress(data.percent, data.message);
+                }
+            };
+            
+            const response = await fetchWithRetry(`${API_BASE_URL}/api/download?url=${encodeURIComponent(videoUrl)}&format_id=${formatId}&client_id=${clientId}`);
             
             if (!response.ok) {
                 throw new Error('Download failed');
@@ -1346,6 +1428,9 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.removeChild(a);
             window.URL.revokeObjectURL(blobUrl);
             
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
             updateProgress(100, 'Download complete!');
             setTimeout(hideProgress, 2000);
             
@@ -1354,6 +1439,84 @@ document.addEventListener('DOMContentLoaded', () => {
             showError('Failed to download video. Please try again.');
             hideProgress();
         }
+    }
+
+    // History Functions
+    function saveToHistory(item) {
+        let history = JSON.parse(localStorage.getItem('anydownloader_history') || '[]');
+        
+        // Remove if exists to push to front
+        history = history.filter(h => h.url !== item.url);
+        
+        // Add to front
+        history.unshift(item);
+        
+        // Keep max 50 items
+        if (history.length > 50) {
+            history = history.slice(0, 50);
+        }
+        
+        localStorage.setItem('anydownloader_history', JSON.stringify(history));
+    }
+    
+    function openHistoryModal() {
+        renderHistory();
+        historyModal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+    
+    function closeHistoryModalFunc() {
+        historyModal.classList.add('hidden');
+        document.body.style.overflow = '';
+    }
+    
+    function renderHistory() {
+        const history = JSON.parse(localStorage.getItem('anydownloader_history') || '[]');
+        
+        // Clear previous items except empty state
+        Array.from(historyContainer.children).forEach(child => {
+            if (child.id !== 'emptyHistory') {
+                child.remove();
+            }
+        });
+        
+        if (history.length === 0) {
+            emptyHistory.classList.remove('hidden');
+            clearHistoryBtn.style.display = 'none';
+            return;
+        }
+        
+        emptyHistory.classList.add('hidden');
+        clearHistoryBtn.style.display = 'block';
+        
+        history.forEach(item => {
+            const date = new Date(item.timestamp).toLocaleDateString();
+            const historyItem = document.createElement('div');
+            historyItem.className = 'playlist-video-card';
+            historyItem.style.marginBottom = '10px';
+            historyItem.innerHTML = `
+                <div class="video-thumbnail" style="width: 80px; height: 45px;">
+                    ${item.thumbnail ? `<img src="${item.thumbnail}" alt="thumbnail" style="width:100%; height:100%; object-fit:cover; border-radius:4px;">` : '<div class="no-thumbnail"><i class="fas fa-video"></i></div>'}
+                </div>
+                <div class="video-info-text" style="flex:1;">
+                    <h4 class="video-title" style="font-size: 0.9rem; margin-bottom: 2px;">${item.title || item.url}</h4>
+                    <p class="video-meta" style="font-size: 0.8rem;">${item.type === 'playlist' ? '<i class="fas fa-list"></i> Playlist' : '<i class="fas fa-video"></i> Video'} • ${date}</p>
+                </div>
+                <button class="action-btn" title="Fetch again" style="padding: 0.5rem;">
+                    <i class="fas fa-search"></i>
+                </button>
+            `;
+            
+            historyItem.querySelector('button').addEventListener('click', () => {
+                closeHistoryModalFunc();
+                videoUrlInput.value = item.url;
+                currentVideoUrl = item.url;
+                clearBtn.classList.remove('hidden');
+                handleFetchClick();
+            });
+            
+            historyContainer.appendChild(historyItem);
+        });
     }
 
     function showProgress(message) {
